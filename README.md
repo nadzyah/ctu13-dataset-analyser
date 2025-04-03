@@ -1,20 +1,42 @@
 # CTU-13 Dataset Analyser
 
-A Python tool for analysing PCAP files from the CTU-13 botnet dataset. This tool extracts
-network sessions from PCAP files, calculates various traffic metrics, and labels the
-traffic based on botnet activity.
+A Python tool for analysing the CTU-13 botnet dataset by extracting
+network sessions from both binetflow and PCAP files. This tool
+calculates comprehensive traffic metrics and accurately labels the
+traffic as botnet, normal, or command & control.
 
 ## Features
 
-- Extracts bidirectional network sessions from PCAP files
-- Calculates comprehensive traffic metrics for each session:
+- **Combined Analysis Approach**:
+  - Processes binetflow files for normal traffic
+  - Processes PCAP files for botnet and command & control traffic
+  - Excludes background traffic for focused analysis
+
+- **Extracts Bidirectional Network Sessions**:
+  - Identifies bidirectional sessions with traffic in both directions
+  - Handles explicitly marked bidirectional flows with "<->" direction
+
+- **Calculates Comprehensive Traffic Metrics**:
   - Packet counts (sent/received)
   - Packet size statistics (min, max, average, variance)
   - Time interval measurements between packets
   - Session duration
-- Automatically labels traffic as botnet, normal, command & control, or background
-- Supports concurrent processing of multiple scenarios
-- Outputs results to CSV for further analysis
+
+- **Intelligent Traffic Classification**:
+  - Automatically labels sessions as botnet, normal, or command &
+    control
+  - Uses multiple indicators for accurate classification
+  - Handles various naming patterns in the dataset
+
+- **High Performance**:
+  - Supports concurrent processing of multiple scenarios
+  - Memory-optimized for handling large files
+  - Incremental processing with batch writing
+
+- **Enhanced Usability**:
+  - Outputs results to CSV for further analysis
+  - Provides dataset statistics
+  - Supports filtering by protocol and traffic type
 
 ## Installation
 
@@ -29,7 +51,7 @@ poetry install
 ## Requirements
 
 - Directory with the extracted `CTU-13-Dataset` from [the `tar.bz2`
-  archive](https://www.stratosphereips.org/datasets-ctu13).
+  archive](https://www.stratosphereips.org/datasets-ctu13)
 - Python (>=3.11)
 - poetry (>=2.1.2)
 
@@ -59,24 +81,40 @@ poetry run ./main.py /path/to/CTU-13-Dataset --max-workers 8
 # Filter by protocol
 poetry run ./main.py /path/to/CTU-13-Dataset --filter-proto TCP
 
+# Filter by traffic type (excluding background)
+poetry run ./main.py /path/to/CTU-13-Dataset --filter-label botnet
+
+# Show dataset statistics without processing
+poetry run ./main.py /path/to/CTU-13-Dataset --show-stats --no-process-data
+
 # Enable verbose logging
 poetry run ./main.py /path/to/CTU-13-Dataset --verbose
 ```
 
 ## Output Format
 
-The analyser outputs a CSV file with the following metrics for each session:
+The analyser outputs a CSV file with the following metrics for each
+session:
 
 | Field | Description |
 |-------|-------------|
-| src_ip | Source IP address |
-| dst_ip | Destination IP address |
+| scenario | Scenario number |
+| pcap_file | Source PCAP filename (if from PCAP) |
+| binetflow_file | Source binetflow filename (if from binetflow) |
+| src_ip | Source/client IP address |
+| dst_ip | Destination/server IP address |
 | src_port | Source port |
 | dst_port | Destination port |
 | proto | Protocol (TCP, UDP, ICMP) |
-| session_label | Classification (botnet, normal, command-and-control, background) |
+| start_time | Session start time |
+| session_label | Classification (botnet, normal, command-and-control) |
+| is_botnet | Flag indicating botnet traffic (1 or 0) |
+| is_normal | Flag indicating normal traffic (1 or 0) |
+| is_cc | Flag indicating command & control traffic (1 or 0) |
+| original_label | Original label from the dataset (for binetflow sources) |
 | spc | Number of packets sent |
 | rpc | Number of packets received |
+| time | Session duration |
 | tss | Total size of sent packets (bytes) |
 | tsr | Total size of received packets (bytes) |
 | smin | Minimum size of sent packets |
@@ -95,9 +133,7 @@ The analyser outputs a CSV file with the following metrics for each session:
 | rintmax | Maximum interval between received packets |
 | rintavg | Average interval between received packets |
 | rintvar | Variance of intervals between received packets |
-| time | Session duration |
-| scenario | Scenario number |
-| pcap_file | Source PCAP filename |
+| state | TCP connection state (for TCP sessions) |
 
 ## Project Structure
 
@@ -107,18 +143,37 @@ ctu13_dataset_analyser/
 │   ├── session.py         # Session class for metrics calculation
 │   └── analyser.py        # PCAP file analysis
 ├── utils/                 # Utility functions
-│   ├── ip_extractor.py    # Extract known IPs from README files
+│   ├── binetflow_parser.py # Binetflow file processing
 │   ├── packet_parser.py   # Packet parsing utilities
 │   └── csv_writer.py      # CSV output handling
 ├── cli_arguments.py       # Command-line interface
 └── main.py                # The main script
 ```
 
+## Data Sources in CTU-13
+
+The CTU-13 dataset provides two main sources of data:
+
+1. **Binetflow Files**: CSV-formatted files containing pre-processed
+   network flow records
+   - Contains normal, botnet, and background traffic
+   - Labelled with flow classification
+   - More compact but less detailed
+
+2. **PCAP Files**: Raw packet capture files
+   - Separate files for botnet traffic
+   - Contains detailed packet-level information
+   - Enables more accurate metrics calculation
+
+This tool combines both sources to provide comprehensive analysis
+while maintaining efficiency.
+
 ## About the CTU-13 Dataset
 
-The CTU-13 dataset consists of 13 different malware capture scenarios created by the
-Stratosphere Lab at the Czech Technical University. Each scenario contains captured
-traffic from a specific malware, with mixed botnet and normal traffic.
+The CTU-13 dataset consists of 13 different malware capture scenarios
+created by the Stratosphere Lab at the Czech Technical
+University. Each scenario contains captured traffic from a specific
+malware, with mixed botnet and normal traffic.
 
 The dataset includes labelled information about:
 - Botnet traffic
@@ -131,5 +186,6 @@ https://www.stratosphereips.org/datasets-ctu13
 
 ## Acknowledgements
 
-This tool was developed for analysing the CTU-13 dataset from the Stratosphere Lab at
-Czech Technical University, Prague, Czech Republic.
+This tool was developed for analysing the CTU-13 dataset from the
+Stratosphere Lab at Czech Technical University, Prague, Czech
+Republic.

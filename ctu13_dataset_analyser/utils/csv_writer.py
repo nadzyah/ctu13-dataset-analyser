@@ -1,5 +1,6 @@
 """
-Functions for writing analysis results to CSV files
+Functions for writing analysis results to CSV files.
+Includes support for binetflow-derived sessions.
 """
 
 import csv
@@ -64,17 +65,20 @@ def get_prioritized_fieldnames(results: List[Dict[str, Any]]) -> List[str]:
         # Session identification
         "scenario",
         "pcap_file",
+        "binetflow_file",
         "src_ip",
         "dst_ip",
         "src_port",
         "dst_port",
         "proto",
+        "start_time",
         # Session labels
         "session_label",
         "is_botnet",
         "is_normal",
         "is_cc",
         "is_background",
+        "original_label",
         # Basic metrics
         "spc",
         "rpc",
@@ -99,6 +103,8 @@ def get_prioritized_fieldnames(results: List[Dict[str, Any]]) -> List[str]:
         "rintmax",
         "rintavg",
         "rintvar",
+        # Additional state information
+        "state",
     ]
 
     # Start with prioritized fields that are actually in results

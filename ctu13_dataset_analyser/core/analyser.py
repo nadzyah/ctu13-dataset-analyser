@@ -1,10 +1,10 @@
 """
-PcapAnalyser class for processing PCAP files and extracting session information.
+Simplified PcapAnalyser class for processing PCAP files without IP classification logic.
 """
 
 import logging
 import gc
-from typing import Dict, Set, Tuple, List, Any, Optional, Generator
+from typing import Dict, Tuple, List, Any, Optional, Generator
 
 from scapy.utils import PcapReader
 from scapy.layers.l2 import Ether
@@ -26,20 +26,14 @@ class PcapAnalyser:
 
     def __init__(
         self,
-        botnet_ips: Set[str],
-        normal_ips: Set[str],
         proto_filter: Optional[str] = None,
     ):
         """
         Initialize the PCAP analyzer.
 
         Args:
-            botnet_ips: Set of known botnet IP addresses
-            normal_ips: Set of known normal IP addresses
             proto_filter: Optional protocol filter (TCP, UDP, ICMP)
         """
-        self.botnet_ips = botnet_ips
-        self.normal_ips = normal_ips
         self.proto_filter = proto_filter
         self.BATCH_SIZE = 50000  # Process this many packets at a time
 
@@ -93,10 +87,6 @@ class PcapAnalyser:
                         current_batch, bidirectional_sessions, session_key_mapping
                     )
                     batch_count += 1
-
-            # Set labels for all sessions
-            for session in bidirectional_sessions.values():
-                session.set_label(self.botnet_ips, self.normal_ips)
 
             # Filter to only include bidirectional sessions
             bidirectional_sessions = {

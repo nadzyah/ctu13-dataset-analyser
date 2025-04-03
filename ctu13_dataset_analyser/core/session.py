@@ -1,11 +1,11 @@
 """
 Memory-optimized Session class for tracking and analyzing network traffic sessions.
-Fixed classification logic to match CTU-13 dataset distributions.
+Simplified version without IP classification logic.
 """
 
 import numpy as np
 import time
-from typing import Dict, List, Set, Any, Optional
+from typing import Dict, List, Any, Optional
 
 
 class Session:
@@ -14,6 +14,7 @@ class Session:
     def __init__(
         self, src_ip: str, dst_ip: str, src_port: int, dst_port: int, proto: str
     ):
+        """Initialize a session with basic flow information."""
         self.src_ip = src_ip
         self.dst_ip = dst_ip
         self.src_port = src_port
@@ -27,13 +28,6 @@ class Session:
         # Session timing info
         self.start_time: Optional[float] = None
         self.end_time: Optional[float] = None
-
-        # Traffic labels
-        self.is_botnet = False
-        self.is_normal = False
-        self.is_cc = False
-        self.is_background = False
-        self.session_label = "unknown"
 
     def add_packet(self, pkt_data: bytes, pkt_metadata: Any, direction: str) -> None:
         """
@@ -145,76 +139,6 @@ class Session:
         """Check if the session has at least one packet in each direction."""
         return len(self.sent_packet_info) > 0 and len(self.received_packet_info) > 0
 
-    def set_label(self, botnet_ips: Set[str], normal_ips: Set[str]) -> None:
-        """
-        Set the label for this session based on the known IPs.
-
-        This implementation follows the CTU-13 dataset labeling conventions:
-        1. Command and Control: Communication between botnet and specific C&C servers
-           (very specific and rare pattern)
-        2. Botnet: Traffic involving infected machines
-        3. Normal: Legitimate traffic involving known normal IPs
-        4. Background: All other traffic (majority of traffic)
-
-        Args:
-            botnet_ips: Set of known botnet IP addresses
-            normal_ips: Set of known normal/legitimate IP addresses
-        """
-        src_is_botnet = self.src_ip in botnet_ips
-        dst_is_botnet = self.dst_ip in botnet_ips
-
-        src_is_normal = self.src_ip in normal_ips
-        dst_is_normal = self.dst_ip in normal_ips
-
-        # The logic follows the CTU-13 dataset conventions more closely
-
-        # C&C traffic is very specific and rare
-        # Usually involves communication with external C&C servers on specific ports
-        is_cc_connection = False
-        common_cc_ports = {80, 443, 8080, 1080, 53}  # Common C&C ports
-
-        # Check for C&C connection patterns
-        if (src_is_botnet and not dst_is_botnet and not dst_is_normal) or (
-            dst_is_botnet and not src_is_botnet and not src_is_normal
-        ):
-            # Communication with an unknown external entity
-            # Check if it's using a common C&C port
-            if self.dst_port in common_cc_ports or self.src_port in common_cc_ports:
-                # DNS (port 53) traffic is almost never C&C in this dataset
-                if (self.dst_port == 53 or self.src_port == 53) and (
-                    self.proto == "UDP"
-                ):
-                    is_cc_connection = False
-                else:
-                    is_cc_connection = True
-
-                    # Special case: TCP port 25 (SMTP) is usually for spam, not C&C
-                    if (
-                        self.dst_port == 25 or self.src_port == 25
-                    ) and self.proto == "TCP":
-                        is_cc_connection = False
-
-        # Classify based on the patterns in the CTU-13 dataset
-        if is_cc_connection:
-            # Command and Control traffic
-            self.is_cc = True
-            self.session_label = "command-and-control"
-        elif src_is_botnet or dst_is_botnet:
-            # Botnet traffic (including botnet-to-botnet)
-            self.is_botnet = True
-            if src_is_botnet and dst_is_botnet:
-                self.session_label = "botnet-to-botnet"
-            else:
-                self.session_label = "botnet"
-        elif src_is_normal or dst_is_normal:
-            # Normal/legitimate traffic
-            self.is_normal = True
-            self.session_label = "normal"
-        else:
-            # Background traffic (majority of traffic)
-            self.is_background = True
-            self.session_label = "background"
-
     def calculate_metrics(self) -> Dict[str, Any]:
         """Calculate all session metrics."""
         if not self.has_bidirectional_traffic():
@@ -286,19 +210,19 @@ class Session:
             else 0
         )
 
-        # Add session label information
-        metrics["session_label"] = self.session_label
-        metrics["is_botnet"] = int(self.is_botnet)
-        metrics["is_normal"] = int(self.is_normal)
-        metrics["is_cc"] = int(self.is_cc)
-        metrics["is_background"] = int(self.is_background)
-
         # Add session identification fields
         metrics["src_ip"] = self.src_ip
         metrics["dst_ip"] = self.dst_ip
         metrics["src_port"] = self.src_port
         metrics["dst_port"] = self.dst_port
         metrics["proto"] = self.proto
+
+        # Default values for labels (these will be added by main script based on file source)
+        metrics["session_label"] = "unknown"
+        metrics["is_botnet"] = 0
+        metrics["is_normal"] = 0
+        metrics["is_cc"] = 0
+        metrics["is_background"] = 0
 
         return metrics
 

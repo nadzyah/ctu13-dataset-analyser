@@ -1,5 +1,6 @@
 """
 Command-line argument parsing for CTU-13 PCAP Analyser.
+Updated for combined binetflow and PCAP processing.
 """
 
 import argparse
@@ -13,7 +14,7 @@ def parse_arguments():
         Parsed arguments namespace
     """
     parser = argparse.ArgumentParser(
-        description="Analyze PCAP files from CTU-13 dataset",
+        description="Analyse CTU-13 dataset (combining binetflow and PCAP files)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -52,9 +53,30 @@ def parse_arguments():
 
     parser.add_argument(
         "--filter-label",
-        choices=["botnet", "normal", "cc", "background", "ALL"],
+        choices=["botnet", "normal", "cc", "ALL"],
         default="ALL",
-        help="Filter by traffic label",
+        help="Filter by traffic label (background is always excluded)",
+    )
+
+    parser.add_argument(
+        "--show-stats",
+        action="store_true",
+        help="Generate and display dataset statistics before processing",
+    )
+
+    parser.add_argument(
+        "--process-data",
+        action="store_true",
+        default=True,
+        help="Process data after showing statistics (use with --show-stats)",
+    )
+
+    # Add a negative form of process-data
+    parser.add_argument(
+        "--no-process-data",
+        action="store_false",
+        dest="process_data",
+        help="Don't process data, only show statistics (use with --show-stats)",
     )
 
     return parser.parse_args()
