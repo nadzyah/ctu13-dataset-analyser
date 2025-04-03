@@ -1,14 +1,11 @@
 """
-Session class for tracking and analyzing network traffic sessions.
-Updated with flexible timestamp handling.
+Memory-optimized Session class for tracking and analyzing network traffic sessions.
+Fixed classification logic to match CTU-13 dataset distributions.
 """
 
 import numpy as np
 import time
-from typing import Dict, List, Set, Tuple, Any, Optional
-
-# Type aliases for clarity
-PacketData = Tuple[bytes, Any]  # (packet_data, packet_metadata)
+from typing import Dict, List, Set, Any, Optional
 
 
 class Session:
@@ -23,9 +20,9 @@ class Session:
         self.dst_port = dst_port
         self.proto = proto
 
-        # Packets data
-        self.sent_packets: List[PacketData] = []
-        self.received_packets: List[PacketData] = []
+        # Instead of storing entire packets, store only essential information
+        self.sent_packet_info: List[Dict[str, Any]] = []
+        self.received_packet_info: List[Dict[str, Any]] = []
 
         # Session timing info
         self.start_time: Optional[float] = None
@@ -39,21 +36,30 @@ class Session:
         self.session_label = "unknown"
 
     def add_packet(self, pkt_data: bytes, pkt_metadata: Any, direction: str) -> None:
-        """Add a packet to the session with the specified direction."""
+        """
+        Add a packet to the session with the specified direction.
+        """
         # Extract timestamp from metadata
         timestamp = self._extract_timestamp(pkt_metadata)
 
+        # Extract packet size
+        size = self._extract_packet_size(pkt_data, pkt_metadata)
+
+        # Update session timing information
         if self.start_time is None or timestamp < self.start_time:
             self.start_time = timestamp
 
         if self.end_time is None or timestamp > self.end_time:
             self.end_time = timestamp
 
-        # Add packet to the appropriate list based on direction
+        # Create minimal packet info
+        packet_info = {"timestamp": timestamp, "size": size}
+
+        # Add packet info to the appropriate list based on direction
         if direction == "sent":
-            self.sent_packets.append((pkt_data, pkt_metadata))
+            self.sent_packet_info.append(packet_info)
         else:
-            self.received_packets.append((pkt_data, pkt_metadata))
+            self.received_packet_info.append(packet_info)
 
     def _extract_timestamp(self, pkt_metadata: Any) -> float:
         """
@@ -137,32 +143,75 @@ class Session:
 
     def has_bidirectional_traffic(self) -> bool:
         """Check if the session has at least one packet in each direction."""
-        return len(self.sent_packets) > 0 and len(self.received_packets) > 0
+        return len(self.sent_packet_info) > 0 and len(self.received_packet_info) > 0
 
     def set_label(self, botnet_ips: Set[str], normal_ips: Set[str]) -> None:
-        """Set the label for this session based on the known IPs."""
+        """
+        Set the label for this session based on the known IPs.
+
+        This implementation follows the CTU-13 dataset labeling conventions:
+        1. Command and Control: Communication between botnet and specific C&C servers
+           (very specific and rare pattern)
+        2. Botnet: Traffic involving infected machines
+        3. Normal: Legitimate traffic involving known normal IPs
+        4. Background: All other traffic (majority of traffic)
+
+        Args:
+            botnet_ips: Set of known botnet IP addresses
+            normal_ips: Set of known normal/legitimate IP addresses
+        """
         src_is_botnet = self.src_ip in botnet_ips
         dst_is_botnet = self.dst_ip in botnet_ips
 
         src_is_normal = self.src_ip in normal_ips
         dst_is_normal = self.dst_ip in normal_ips
 
-        if src_is_botnet and dst_is_botnet:
-            self.is_botnet = True
-            self.session_label = "botnet-to-botnet"
+        # The logic follows the CTU-13 dataset conventions more closely
+
+        # C&C traffic is very specific and rare
+        # Usually involves communication with external C&C servers on specific ports
+        is_cc_connection = False
+        common_cc_ports = {80, 443, 8080, 1080, 53}  # Common C&C ports
+
+        # Check for C&C connection patterns
+        if (src_is_botnet and not dst_is_botnet and not dst_is_normal) or (
+            dst_is_botnet and not src_is_botnet and not src_is_normal
+        ):
+            # Communication with an unknown external entity
+            # Check if it's using a common C&C port
+            if self.dst_port in common_cc_ports or self.src_port in common_cc_ports:
+                # DNS (port 53) traffic is almost never C&C in this dataset
+                if (self.dst_port == 53 or self.src_port == 53) and (
+                    self.proto == "UDP"
+                ):
+                    is_cc_connection = False
+                else:
+                    is_cc_connection = True
+
+                    # Special case: TCP port 25 (SMTP) is usually for spam, not C&C
+                    if (
+                        self.dst_port == 25 or self.src_port == 25
+                    ) and self.proto == "TCP":
+                        is_cc_connection = False
+
+        # Classify based on the patterns in the CTU-13 dataset
+        if is_cc_connection:
+            # Command and Control traffic
+            self.is_cc = True
+            self.session_label = "command-and-control"
         elif src_is_botnet or dst_is_botnet:
-            if (src_is_botnet and not dst_is_normal) or (
-                dst_is_botnet and not src_is_normal
-            ):
-                self.is_cc = True
-                self.session_label = "command-and-control"
+            # Botnet traffic (including botnet-to-botnet)
+            self.is_botnet = True
+            if src_is_botnet and dst_is_botnet:
+                self.session_label = "botnet-to-botnet"
             else:
-                self.is_botnet = True
                 self.session_label = "botnet"
         elif src_is_normal or dst_is_normal:
+            # Normal/legitimate traffic
             self.is_normal = True
             self.session_label = "normal"
         else:
+            # Background traffic (majority of traffic)
             self.is_background = True
             self.session_label = "background"
 
@@ -174,16 +223,12 @@ class Session:
         metrics = {}
 
         # Basic packet counts
-        metrics["spc"] = len(self.sent_packets)
-        metrics["rpc"] = len(self.received_packets)
+        metrics["spc"] = len(self.sent_packet_info)
+        metrics["rpc"] = len(self.received_packet_info)
 
         # Packet size metrics
-        sent_sizes = [
-            self._extract_packet_size(pkt[0], pkt[1]) for pkt in self.sent_packets
-        ]
-        received_sizes = [
-            self._extract_packet_size(pkt[0], pkt[1]) for pkt in self.received_packets
-        ]
+        sent_sizes = [pkt["size"] for pkt in self.sent_packet_info]
+        received_sizes = [pkt["size"] for pkt in self.received_packet_info]
 
         metrics["tss"] = sum(sent_sizes)
         metrics["tsr"] = sum(received_sizes)
@@ -203,8 +248,8 @@ class Session:
         )
 
         # Calculate time intervals between packets
-        s_diff_times = self._calculate_time_diffs(self.sent_packets)
-        r_diff_times = self._calculate_time_diffs(self.received_packets)
+        s_diff_times = self._calculate_time_diffs(self.sent_packet_info)
+        r_diff_times = self._calculate_time_diffs(self.received_packet_info)
 
         # Time interval metrics for sent packets
         if s_diff_times:
@@ -257,15 +302,19 @@ class Session:
 
         return metrics
 
-    def _calculate_time_diffs(self, packets: List[PacketData]) -> List[float]:
+    def _calculate_time_diffs(self, packet_info: List[Dict[str, Any]]) -> List[float]:
         """Calculate time differences between consecutive packets."""
-        if len(packets) < 2:
+        if len(packet_info) < 2:
             return []
 
+        # Sort by timestamp to ensure correct ordering
+        sorted_packets = sorted(packet_info, key=lambda x: x["timestamp"])
+
+        # Calculate differences
         diff_times = []
-        for i in range(len(packets) - 1):
-            start_time = self._extract_timestamp(packets[i][1])
-            end_time = self._extract_timestamp(packets[i + 1][1])
+        for i in range(len(sorted_packets) - 1):
+            start_time = sorted_packets[i]["timestamp"]
+            end_time = sorted_packets[i + 1]["timestamp"]
             diff_times.append(end_time - start_time)
 
         return diff_times
